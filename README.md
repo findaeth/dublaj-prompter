@@ -1,6 +1,15 @@
-# Dublaj Prompter
+<h1 align="center">Dublaj Prompter</h1>
 
-İngilizce YouTube videolarına Türkçe seslendirme yaparken kullanılan yerel prompter. Videonun zamanına bağlı kayar, videoyu prompter sayfasından durdurup ileri geri sarabilirsin.
+<p align="center">İngilizce YouTube videolarına Türkçe seslendirme için, videonun zamanına bağlı akan yerel prompter.</p>
+
+<p align="center"><img src="assets/demo.gif" alt="Dublaj Prompter akışı: link, transkript, Türkçe prompter, senkron kumanda" width="720"></p>
+
+## Neler yapar
+- **Linkten transkript:** YouTube linkinden sesi indirir, Whisper ile zaman damgalı İngilizce transkript çıkarır. Videoda altyazı olmasa da çalışır.
+- **Doğal Türkçe metin:** Claude Code, transkripti anlam sırasını koruyarak seslendirmeye uygun, nefes yerlerinden bölünmüş Türkçeye çevirir.
+- **Videoyla senkron prompter:** Metin videonun saniyesine göre kayar. Prompter sayfasından videoyu durdurup 5-10 sn ileri geri sarabilir, bir satıra tıklayıp o saniyeye atlayabilirsin.
+- **İngilizce ipucu:** Her bloğun başında konuşmacının ilk ve son sözleri küçük, mavi satırda görünür, yerini bulman kolaylaşır.
+- **Yerel:** Hesap ve sunucu gerekmez, her şey bilgisayarında çalışır.
 
 Akış: YouTube linki, Whisper ile zaman damgalı İngilizce transkript, Türkçe prompter metni (`prompter.txt`), iki sekmeli yerel prompter sitesi.
 
