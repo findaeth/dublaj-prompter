@@ -1,0 +1,15 @@
+[0:00 - GİRİŞ]
+~ "A PLC is a rugged industrial computer" ... "reliable factory control"
+PLC (Pi-El-Si), fabrikalarda kullanılan,
+zorlu koşullara dayanıklı bir endüstriyel bilgisayardır.
+[0:07]
+~ "It reads inputs from sensors" ... "switch on or off"
+Sensörlerden gelen girişleri okur,
+programa göre hesaplar,
+sonra motorları ve valfleri açıp kapatan çıkışları sürer.
+.
+[0:15 - SAHNE GEÇİŞİ - 2 SANİYE BEKLE]
+~ "Let's look at the scan cycle" ... "then repeats"
+Şimdi tarama döngüsüne bakalım:
+önce girişler okunur, sonra program çalışır,
+sonra çıkışlar güncellenir ve döngü baştan başlar.

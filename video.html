@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Dublaj Video</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; }
+  #player { width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  // Video sekmesi: Meet'e bu sekme paylaşılır. Zamanı prompter sekmesine yayar.
+  const vid = new URLSearchParams(location.search).get("v");
+  const kanal = new BroadcastChannel("dublaj");
+  let player;
+
+  function yay() {
+    if (!player || !player.getCurrentTime) return;
+    kanal.postMessage({
+      v: vid,
+      t: player.getCurrentTime(),
+      oynuyor: player.getPlayerState() === YT.PlayerState.PLAYING,
+    });
+  }
+
+  function onYouTubeIframeAPIReady() {
+    player = new YT.Player("player", {
+      videoId: vid,
+      playerVars: { rel: 0, cc_load_policy: 0, playsinline: 1 },
+      events: { onStateChange: yay },
+    });
+    setInterval(yay, 100);
+  }
+
+  // Prompter sekmesinden gelen kumanda komutları
+  kanal.onmessage = (e) => {
+    if (!player || !player.seekTo) return;
+    const m = e.data;
+    if (m.v && m.v !== vid) return;
+    if (m.komut === "sar") player.seekTo(m.t, true);
+    else if (m.komut === "oynat") player.playVideo();
+    else if (m.komut === "durdur") player.pauseVideo();
+    if (m.komut) setTimeout(yay, 50);
+  };
+
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+</script>
+</body>
+</html>

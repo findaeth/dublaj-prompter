@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Dublaj Prompter</title>
+<style>
+  :root { --font: 44px; --margin: 22%; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden;
+               font-family: "Segoe UI", Arial, sans-serif; }
+  #ayar { position: fixed; top: 0; left: 0; right: 0; z-index: 2; display: flex; gap: 16px;
+          align-items: center; padding: 6px 12px; background: #111; font-size: 13px; opacity: .85; }
+  #ayar input[type=range] { width: 110px; }
+  #kumanda button { background: #222; color: #fff; border: 1px solid #444; border-radius: 4px;
+                    padding: 4px 10px; font-size: 13px; cursor: pointer; }
+  #kumanda button:hover { background: #333; }
+  .satir, .not { cursor: pointer; }
+  #sahne { position: absolute; inset: 40px 0 0 0; overflow: hidden; }
+  #akis { position: absolute; left: var(--margin); right: var(--margin); top: 0;
+          transition: transform .25s linear; font-size: var(--font); line-height: 1.45; }
+  body.ayna #akis { transform-origin: center; }
+  .satir { padding: 2px 0; color: #777; }
+  .satir.aktif { color: #fff; }
+  .satir.gecti { color: #444; }
+  .not { color: #f5c542; font-size: .55em; font-weight: 700; padding: 10px 0; }
+  .bosluk { height: 1.2em; }
+  .ipucu { color: #5aa9e6; font-size: .45em; font-style: italic; padding: 4px 0 10px; }
+  body.ipucuKapali .ipucu { display: none; }
+  #cizgi { position: absolute; left: 0; right: 0; top: 35%; height: 0; border-top: 1px solid #333; }
+  #yukle { position: absolute; inset: 40px 0 0 0; display: none; align-items: center;
+           justify-content: center; font-size: 18px; }
+</style>
+</head>
+<body>
+<div id="ayar">
+  <label>Font <input id="font" type="range" min="24" max="80" value="44"></label>
+  <label>Margin <input id="margin" type="range" min="5" max="35" value="22"></label>
+  <label>Öne al (sn) <input id="onde" type="number" step="0.1" value="0.5" style="width:56px"></label>
+  <label><input id="ayna" type="checkbox"> Ayna</label>
+  <label><input id="ipucu" type="checkbox" checked> İng. ipucu</label>
+  <span id="kumanda">
+    <button data-fark="-10">-10 sn</button>
+    <button data-fark="-5">-5 sn</button>
+    <button id="oynat">Oynat / Durdur</button>
+    <button data-fark="5">+5 sn</button>
+    <button data-fark="10">+10 sn</button>
+  </span>
+  <span id="durum">video bekleniyor</span>
+</div>
+<div id="sahne"><div id="cizgi"></div><div id="akis"></div></div>
+<div id="yukle">Metin dosyası bulunamadı: <input id="dosya" type="file" accept=".txt"></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const akis = document.getElementById("akis");
+  const kanal = new BroadcastChannel("dublaj");
+  let satirlar = []; // {t, el}
+  let aktif = -1;
+  let son = { t: 0, oynuyor: false, ne: performance.now() };
+
+  // [m:ss ...] başlığını ayrıştırır: ilk m:ss başlangıç zamanı, kalan kısım sahne notu
+  function ayristir(metin) {
+    const bas = /^\[(\d+):(\d{2})(?:[^\]]*?\|\s*|\s*-\s*)?([^\]]*)\]\s*(.*)$/;
+    const bloklar = [];
+    let mevcut = null;
+    for (const ham of metin.split(/\r?\n/)) {
+      const l = ham.trim();
+      const m = l.match(bas);
+      if (m) {
+        mevcut = { t: +m[1] * 60 + +m[2], not: m[3].replace(/^\d+:\d{2}\s*\|?\s*/, "").trim(),
+                   satirlar: [] };
+        if (m[4]) mevcut.satirlar.push(m[4]);
+        bloklar.push(mevcut);
+      } else if (mevcut && l.startsWith("~")) {
+        mevcut.satirlar.push({ ipucu: l.slice(1).trim() });
+      } else if (mevcut && l === ".") {
+        mevcut.satirlar.push(null);
+      } else if (mevcut && l) {
+        mevcut.satirlar.push(l);
+      }
+    }
+    return bloklar;
+  }
+
+  function kur(metin) {
+    akis.innerHTML = "";
+    satirlar = [];
+    const bloklar = ayristir(metin);
+    bloklar.forEach((b, i) => {
+      const bitis = i + 1 < bloklar.length ? bloklar[i + 1].t : b.t + 6;
+      if (b.not) {
+        const n = document.createElement("div");
+        n.className = "not";
+        n.textContent = "[" + b.not + "]";
+        akis.appendChild(n);
+        satirlar.push({ t: b.t, el: n });
+      }
+      const metinli = b.satirlar.filter((s) => typeof s === "string");
+      const toplam = metinli.reduce((a, s) => a + s.length, 0) || 1;
+      let gec = 0;
+      for (const s of b.satirlar) {
+        if (s === null) {
+          const d = document.createElement("div");
+          d.className = "bosluk";
+          akis.appendChild(d);
+          continue;
+        }
+        if (typeof s === "object") {
+          const ip = document.createElement("div");
+          ip.className = "ipucu";
+          ip.textContent = "EN  " + s.ipucu;
+          akis.appendChild(ip);
+          continue;
+        }
+        const el = document.createElement("div");
+        el.className = "satir";
+        el.textContent = s;
+        akis.appendChild(el);
+        satirlar.push({ t: b.t + (bitis - b.t) * (gec / toplam), el });
+        gec += s.length;
+      }
+    });
+    satirlar.forEach((s) => { s.el.onclick = () => sar(s.t); });
+    aktif = -1;
+  }
+
+  function guncelle(t) {
+    let i = -1;
+    for (let k = 0; k < satirlar.length; k++) if (satirlar[k].t <= t) i = k; else break;
+    if (i === aktif) return;
+    aktif = i;
+    satirlar.forEach((s, k) => {
+      s.el.classList.toggle("aktif", k === i);
+      s.el.classList.toggle("gecti", k < i);
+    });
+    if (i >= 0) {
+      const hedef = document.getElementById("sahne").clientHeight * 0.35;
+      akis.style.transform = "translateY(" + (hedef - satirlar[i].el.offsetTop) + "px)";
+    }
+  }
+
+  // Yalnızca kendi videosunun zamanını dinle: eski açık video sekmeleri aynı kanala yayın yapabilir
+  const benimId = q.get("v") || ((q.get("f") || "").match(/veri\/([^/]+)\//) || [])[1];
+  let hedef = null; // sar komutu gönderildi: video atlayana kadar gelen eski zamanları yok say
+  kanal.onmessage = (e) => {
+    const { t, oynuyor } = e.data;
+    if (t === undefined) return;
+    if (benimId && e.data.v !== benimId) return;
+    const an = performance.now();
+    if (hedef) {
+      if (an > hedef.bitis) hedef = null;
+      else if (Math.abs(t - hedef.t) > 1.5) return;
+      else hedef = null;
+    }
+    // Oynatıcı süreyi ~250 ms'lik adımlarla bildirir: küçük farkları yumuşat (saat geri sıçramasın),
+    // büyük farkı ve oynat/durdur değişimini gerçek atlama say
+    const fark = t - simdi();
+    if (oynuyor && son.oynuyor && Math.abs(fark) < 0.6) son = { t: simdi() + fark * 0.15, oynuyor, ne: an };
+    else son = { t, oynuyor, ne: an };
+    document.getElementById("durum").textContent =
+      (oynuyor ? "oynuyor " : "durdu ") + t.toFixed(1) + " sn";
+  };
+
+  function dongu() {
+    const onde = parseFloat(document.getElementById("onde").value) || 0;
+    const gecen = son.oynuyor ? (performance.now() - son.ne) / 1000 : 0;
+    guncelle(son.t + gecen + onde);
+    requestAnimationFrame(dongu);
+  }
+
+  // Kumanda: komutlar video sekmesine gider
+  const simdi = () => son.t + (son.oynuyor ? (performance.now() - son.ne) / 1000 : 0);
+  function sar(t) {
+    t = Math.max(0, t);
+    son = { t, oynuyor: son.oynuyor, ne: performance.now() };
+    hedef = { t, bitis: performance.now() + 1500 };
+    kanal.postMessage({ komut: "sar", t, v: benimId });
+  }
+  function oynatDurdur() {
+    kanal.postMessage({ komut: son.oynuyor ? "durdur" : "oynat", v: benimId });
+  }
+  document.querySelectorAll("#kumanda [data-fark]").forEach((b) => {
+    b.onclick = () => { sar(simdi() + parseFloat(b.dataset.fark)); b.blur(); };
+  });
+  document.getElementById("oynat").onclick = (e) => { oynatDurdur(); e.target.blur(); };
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); oynatDurdur(); }
+    else if (e.code === "ArrowLeft") { e.preventDefault(); sar(simdi() - (e.shiftKey ? 10 : 5)); }
+    else if (e.code === "ArrowRight") { e.preventDefault(); sar(simdi() + (e.shiftKey ? 10 : 5)); }
+  });
+
+  document.getElementById("font").oninput = (e) =>
+    document.documentElement.style.setProperty("--font", e.target.value + "px");
+  document.getElementById("margin").oninput = (e) =>
+    document.documentElement.style.setProperty("--margin", e.target.value + "%");
+  document.getElementById("ayna").onchange = (e) => {
+    document.getElementById("sahne").style.transform = e.target.checked ? "scaleX(-1)" : "";
+  };
+  document.getElementById("ipucu").onchange = (e) => {
+    document.body.classList.toggle("ipucuKapali", !e.target.checked);
+    aktif = -1;
+  };
+  document.getElementById("dosya").onchange = (e) =>
+    e.target.files[0].text().then((m) => { document.getElementById("yukle").style.display = "none"; kur(m); });
+
+  const f = q.get("f");
+  if (f) {
+    fetch(f).then((r) => { if (!r.ok) throw 0; return r.text(); }).then(kur)
+      .catch(() => { document.getElementById("yukle").style.display = "flex"; });
+  } else {
+    document.getElementById("yukle").style.display = "flex";
+  }
+  dongu();
+</script>
+</body>
+</html>
