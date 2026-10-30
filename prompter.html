@@ -52,6 +52,7 @@
     <button data-fark="5">+5 sn</button>
     <button data-fark="10">+10 sn</button>
   </span>
+  <span id="ritimBilgi" style="color:#8a93a3"></span>
   <span id="durum">video bekleniyor</span>
 </div>
 <div id="sahne"><div id="cizgi"></div><div id="akis"></div></div>
@@ -144,9 +145,130 @@
     return gec / e.toplam;
   }
 
+  let ritimMetin = []; // ritim.json "metinli": [{k: kelime, b: başlangıç, e: bitiş}, ...]
+
+  // --- v3: Türkçe kelimeleri İngilizce kelimelere çapalama ---
+  const SAYI_TR = { sıfır: "0", iki: "2", üç: "3", dört: "4", beş: "5", altı: "6", yedi: "7", sekiz: "8", dokuz: "9", on: "10" };
+  const SAYI_EN = { zero: "0", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9", ten: "10" };
+  const SADE = { ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u", â: "a", î: "i", û: "u" };
+
+  // Karşılaştırma için kelimeyi sadeleştirir: küçük harf, ek ve noktalama yok, sayı sözcükleri rakam
+  function sadelestir(w, tr) {
+    const alt = (tr ? w.toLocaleLowerCase("tr") : w.toLowerCase()).split(/['’]/)[0].replace(/[^\p{L}\p{N}]/gu, "");
+    const tablo = tr ? SAYI_TR : SAYI_EN;
+    if (Object.hasOwn(tablo, alt)) return tablo[alt];
+    return alt.replace(/[çğıöşüâîû]/g, (c) => SADE[c]);
+  }
+
+  function uzaklik(a, b) {
+    let onceki = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const simdiki = [i];
+      for (let j = 1; j <= b.length; j++)
+        simdiki[j] = Math.min(onceki[j] + 1, simdiki[j - 1] + 1, onceki[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      onceki = simdiki;
+    }
+    return onceki[b.length];
+  }
+
+  // İki sadeleştirilmiş kelimenin çapa olma puanı (0 = çapa değil): aynı sayı, aynı kelime (4+ harf) ya da benzer (5+ harf)
+  function benzerlik(a, b) {
+    if (!a || !b) return 0;
+    if (/^\d+$/.test(a) || /^\d+$/.test(b)) return a === b ? 1 : 0;
+    if (a === b) return a.length >= 4 ? 1 : 0;
+    if (a.length < 5 || b.length < 5) return 0;
+    const r = 1 - uzaklik(a, b) / Math.max(a.length, b.length);
+    return r >= 0.72 ? r : 0;
+  }
+
+  // Türkçe ve İngilizce kelime dizileri arasında sıralı (kesişmeyen) en yüksek puanlı çapa zinciri
+  function hizala(tr, en) {
+    const aday = [];
+    tr.forEach((a, i) => en.forEach((b, j) => {
+      if (Math.abs(i / tr.length - j / en.length) > 0.5) return; // blok içinde çok uzak eşleşme çapa olmaz
+      const s = benzerlik(a, b);
+      if (s > 0) aday.push({ i, j, s });
+    }));
+    aday.sort((x, y) => x.i - y.i || x.j - y.j);
+    const dp = [];
+    let enIyi = -1;
+    aday.forEach((c, k) => {
+      dp[k] = { skor: c.s, onceki: -1 };
+      for (let l = 0; l < k; l++) {
+        if (aday[l].i < c.i && aday[l].j < c.j && dp[l].skor + c.s > dp[k].skor) dp[k] = { skor: dp[l].skor + c.s, onceki: l };
+      }
+      if (enIyi < 0 || dp[k].skor > dp[enIyi].skor) enIyi = k;
+    });
+    const zincir = [];
+    for (let k = enIyi; k >= 0; k = dp[k].onceki) zincir.unshift(aday[k]);
+    return zincir;
+  }
+
+  const sinirla = (x) => Math.min(1, Math.max(0, x));
+
+  // [ta, tb] aralığı için konuşma ilerlemesi (duraklarda sabit) ve oran-an dönüşümü
+  function aralik(ta, tb) {
+    const e = ritim.length ? konusmaEgrisi(ta, tb) : null;
+    return {
+      ilerle: e ? (t) => konusmaIlerleme(e, t) : (t) => sinirla((t - ta) / ((tb - ta) || 1)),
+      zaman: (oran, basla) => e ? egridenZaman(e, oran, basla) : ta + (tb - ta) * oran,
+    };
+  }
+
+  // Bir bloğun satır ve kelime zamanlamasını hesaplar (DOM'suz). Çapalı kelime, İngilizce karşılığının
+  // söylendiği aralıkta dolar; çapalar arası kelimeler o aralıktaki konuşma ilerlemesine göre dağılır.
+  // Çapa ya da ritim yoksa tüm blok tek aralık olur (v2 davranışı).
+  function blokPlanla(b, bitis) {
+    const metinli = b.satirlar.filter((s) => typeof s === "string");
+    const egri = ritim.length ? konusmaEgrisi(b.t, bitis) : null;
+    const parcaListe = metinli.map((s) => kelimelereBol(s, !egri));
+    const toplam = parcaListe.reduce((a, p) => a + p.agirlik, 0) || 1;
+    const kel = [];
+    let gec = 0;
+    for (const parcalar of parcaListe) {
+      for (const k of parcalar) if (!k.bosluk) { k.A = (gec + k.bas) / toplam; k.B = (gec + k.son) / toplam; kel.push(k); }
+      gec += parcalar.agirlik;
+    }
+    const en = egri && ritimMetin.length ? ritimMetin.filter((w) => w.b >= b.t - 0.1 && w.b < bitis - 0.02) : [];
+    const capa = en.length && kel.length
+      ? hizala(kel.map((k) => sadelestir(k.metin, true)), en.map((w) => sadelestir(w.k, false))) : [];
+
+    let onceki = { idx: -1, t: b.t, x: 0 };
+    const kapat = (sonIdx, tSon, xSon) => { // önceki çapa ile sonraki çapa arasındaki çapasız kelimeler
+      const n = sonIdx - onceki.idx - 1;
+      if (n <= 0) return;
+      const ar = aralik(onceki.t, Math.max(tSon, onceki.t + 0.12 * n));
+      const genislik = (xSon - onceki.x) || 1;
+      for (let i = onceki.idx + 1; i < sonIdx; i++) {
+        const k = kel[i];
+        const A = (k.A - onceki.x) / genislik, B = (k.B - onceki.x) / genislik;
+        k.doldur = (t) => sinirla((ar.ilerle(t) - A) / ((B - A) || 1e-6));
+        k.basT = ar.zaman(A, true);
+      }
+    };
+    for (const c of capa) {
+      const k = kel[c.i], w = en[c.j];
+      kapat(c.i, w.b, k.A);
+      k.doldur = (t) => sinirla((t - w.b) / ((w.e - w.b) || 1e-6));
+      k.basT = w.b;
+      onceki = { idx: c.i, t: w.e, x: k.B };
+    }
+    kapat(kel.length, bitis, 1);
+
+    let onceT = b.t;
+    const satirlar = parcaListe.map((parcalar, j) => {
+      const ilk = parcalar.find((k) => !k.bosluk);
+      const t = j === 0 ? b.t : Math.min(bitis - 0.01, Math.max(onceT, ilk ? ilk.basT : onceT));
+      onceT = t;
+      return { t, parcalar };
+    });
+    return { satirlar, capaSayisi: capa.length, kelimeSayisi: kel.length, ritimli: !!egri };
+  }
+
   function kur(metin) {
     akis.innerHTML = "";
     satirlar = [];
+    const bilgi = { capa: 0, kelime: 0, ritimli: 0 };
     const bloklar = ayristir(metin);
     bloklar.forEach((b, i) => {
       const bitis = i + 1 < bloklar.length ? bloklar[i + 1].t : b.t + 6;
@@ -157,15 +279,10 @@
         akis.appendChild(n);
         satirlar.push({ t: b.t, el: n });
       }
-      const metinli = b.satirlar.filter((s) => typeof s === "string");
-      // İngilizce konuşma ritmi varsa zamanlar ona göre, yoksa blok süresine doğrusal dağıtılır
-      const egri = ritim.length ? konusmaEgrisi(b.t, bitis) : null;
-      const zaman = (oran, basla) => egri ? egridenZaman(egri, oran, basla) : b.t + (bitis - b.t) * oran;
-      // Bloktaki konuşma ilerlemesi (0-1): ritim varsa duraklarda sabit kalır, yoksa zamanla doğrusaldır
-      const ilerle = egri ? (t) => konusmaIlerleme(egri, t) : (t) => (t - b.t) / ((bitis - b.t) || 1);
-      const parcaListe = metinli.map((s) => kelimelereBol(s, !egri));
-      const toplam = parcaListe.reduce((a, p) => a + p.agirlik, 0) || 1;
-      let gec = 0;
+      const plan = blokPlanla(b, bitis);
+      bilgi.capa += plan.capaSayisi;
+      bilgi.kelime += plan.kelimeSayisi;
+      if (plan.ritimli) bilgi.ritimli++;
       let sira = 0;
       for (const s of b.satirlar) {
         if (s === null) {
@@ -181,24 +298,26 @@
           akis.appendChild(ip);
           continue;
         }
-        const parcalar = parcaListe[sira++];
+        const pl = plan.satirlar[sira++];
         const el = document.createElement("div");
         el.className = "satir";
         const kelimeler = [];
-        for (const k of parcalar) {
+        for (const k of pl.parcalar) {
           if (k.bosluk) { el.appendChild(document.createTextNode(k.metin)); continue; }
           const sp = document.createElement("span");
           sp.className = "k";
           sp.textContent = k.metin;
           el.appendChild(sp);
-          kelimeler.push({ sp, A: (gec + k.bas) / toplam, B: (gec + k.son) / toplam });
+          kelimeler.push({ sp, doldur: k.doldur });
         }
         akis.appendChild(el);
-        satirlar.push({ t: gec === 0 ? b.t : zaman(gec / toplam, true), el, kelimeler, ilerle });
-        gec += parcalar.agirlik;
+        satirlar.push({ t: pl.t, el, kelimeler });
       }
     });
     satirlar.forEach((s) => { s.el.onclick = () => sar(s.t); });
+    document.getElementById("ritimBilgi").textContent = ritim.length
+      ? "ritim: " + (ritimMetin.length ? "v3" : "v2") + ", çapa " + bilgi.capa + "/" + bilgi.kelime
+      : "ritim yok (yedek)";
     aktif = -1;
   }
 
@@ -219,12 +338,11 @@
     if (aktif >= 0 && document.body.classList.contains("karaoke")) kelimeDoldur(satirlar[aktif], t);
   }
 
-  // Aktif satırda her kelimeyi konuşmanın ilerlemesine göre soluktan beyaza doldurur; kenar 24% yumuşaktır
+  // Aktif satırda her kelimeyi kendi doldur(t) oranına (0-1) göre soluktan beyaza doldurur; kenar 24% yumuşaktır
   function kelimeDoldur(s, t) {
     if (!s.kelimeler) return;
-    const p = s.ilerle(t);
     for (const k of s.kelimeler) {
-      const f = Math.min(1, Math.max(0, (p - k.A) / ((k.B - k.A) || 1e-6)));
+      const f = k.doldur(t);
       const a = -24 + f * 124;
       k.sp.style.setProperty("--a", a + "%");
       k.sp.style.setProperty("--b", (a + 24) + "%");
@@ -306,7 +424,11 @@
   // İngilizce konuşma ritmi isteğe bağlıdır: dosya yoksa karaoke yedek ağırlıklarla çalışır
   const ritimYukle = benimId
     ? fetch("veri/" + benimId + "/ritim.json").then((r) => (r.ok ? r.json() : null))
-        .then((j) => { if (j && j.kelimeler) ritim = j.kelimeler; }).catch(() => {})
+        .then((j) => {
+          if (!j || !j.kelimeler) return;
+          ritim = j.kelimeler;
+          ritimMetin = (j.metinli || []).map(([k, b, e]) => ({ k, b, e }));
+        }).catch(() => {})
     : Promise.resolve();
   const f = q.get("f");
   if (f) {
