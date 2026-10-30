@@ -1,7 +1,7 @@
 """YouTube linkinden zaman damgalı transkript çıkarır.
 
 Kullanım: python hazirla.py <youtube-linki> [model]
-Çıktı:    veri/<video-id>/en.json, en.txt  (ve ses.wav ara dosyası)
+Çıktı:    veri/<video-id>/en.json, en.txt, ritim.json  (ve ses.wav ara dosyası)
 """
 import json
 import os
@@ -53,15 +53,21 @@ def main():
 
     from faster_whisper import WhisperModel
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segs, info = model.transcribe(wav, vad_filter=True)
-    veri = [{"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()}
-            for s in segs]
+    segs, info = model.transcribe(wav, vad_filter=True, word_timestamps=True)
+    veri = []
+    kelimeler = []  # konuşmanın ritmi: her kelimenin [başlangıç, bitiş] saniyesi
+    for s in segs:
+        veri.append({"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()})
+        kelimeler.extend([round(w.start, 2), round(w.end, 2)] for w in (s.words or []))
 
     with open(os.path.join(out, "en.json"), "w", encoding="utf-8") as f:
         json.dump({"id": vid, "dil": info.language, "segmentler": veri}, f,
                   ensure_ascii=False, indent=1)
     with open(os.path.join(out, "en.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(f"[{stamp(s['start'])}] {s['text']}" for s in veri))
+
+    with open(os.path.join(out, "ritim.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": vid, "kelimeler": kelimeler}, f)
 
     os.remove(os.path.join(out, ham_dosya))
     os.remove(wav)

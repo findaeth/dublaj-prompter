@@ -88,16 +88,60 @@
     return bloklar;
   }
 
-  // Satırı kelimelere böler; her kelimenin satır süresi içindeki payı (a..b, 0-1) harf uzunluğuna göredir
-  function kelimelereBol(s) {
-    const harf = s.replace(/\s+/g, "").length || 1;
-    let sayac = 0;
-    return s.split(/(\s+)/).filter(Boolean).map((parca) => {
+  // Satırı kelimelere böler; her kelime [bas, son] aralığıyla satırın ağırlık ekseninde yer alır.
+  // Ağırlık Türkçe hece sayısıdır (sesli harf sayısı). duraklar açıksa noktalama sonrası bekleme payı
+  // eklenir; bu, İngilizce konuşma ritmi (ritim.json) yokken kullanılan yedek davranıştır.
+  function kelimelereBol(s, duraklar) {
+    const hece = (w) => Math.max(1, (w.match(/[aeıioöuüAEIİOÖUÜâîû]/g) || []).length);
+    let gec = 0;
+    const liste = s.split(/(\s+)/).filter(Boolean).map((parca) => {
       if (/^\s+$/.test(parca)) return { metin: parca, bosluk: true };
-      const k = { metin: parca, a: sayac / harf, b: (sayac + parca.length) / harf };
-      sayac += parca.length;
+      const agirlik = hece(parca) + 0.4;
+      const k = { metin: parca, bas: gec, son: gec + agirlik };
+      gec += agirlik;
+      if (duraklar) gec += /[.!?…]["')»]*$/.test(parca) ? 1 : /[,;:]["')»]*$/.test(parca) ? 0.6 : 0;
       return k;
     });
+    liste.agirlik = gec || 1;
+    return liste;
+  }
+
+  let ritim = []; // veri/<id>/ritim.json: İngilizce kelime zamanları [[bas, son], ...]
+
+  // [t0, t1] penceresindeki konuşmayı (duraklar hariç) saniye parçaları olarak toplar
+  function konusmaEgrisi(t0, t1) {
+    const parcalar = [];
+    for (const [b, s] of ritim) {
+      if (s <= t0) continue;
+      if (b >= t1) break;
+      const bb = Math.max(b, t0), ss = Math.min(s, t1);
+      if (ss > bb) parcalar.push([bb, ss]);
+    }
+    const toplam = parcalar.reduce((a, p) => a + p[1] - p[0], 0);
+    return toplam ? { parcalar, toplam } : null;
+  }
+
+  // Konuşmanın f oranı (0-1) tamamlandığı an. basla: duraktan sonra konuşmanın yeniden başladığı an
+  function egridenZaman(e, f, basla) {
+    const hedef = f * e.toplam;
+    let gec = 0;
+    for (const [b, s] of e.parcalar) {
+      const d = s - b;
+      if (basla ? hedef < gec + d - 1e-9 : hedef <= gec + d + 1e-9) return b + Math.max(0, hedef - gec);
+      gec += d;
+    }
+    return e.parcalar[e.parcalar.length - 1][1];
+  }
+
+  // t anına kadar konuşulan sürenin toplama oranı (0-1); duraklarda sabit kalır
+  function konusmaIlerleme(e, t) {
+    let gec = 0;
+    for (const [b, s] of e.parcalar) {
+      if (t <= b) break;
+      gec += Math.min(t, s) - b;
+      if (t < s) break;
+    }
+    return gec / e.toplam;
   }
 
   function kur(metin) {
@@ -114,8 +158,15 @@
         satirlar.push({ t: b.t, el: n });
       }
       const metinli = b.satirlar.filter((s) => typeof s === "string");
-      const toplam = metinli.reduce((a, s) => a + s.length, 0) || 1;
+      // İngilizce konuşma ritmi varsa zamanlar ona göre, yoksa blok süresine doğrusal dağıtılır
+      const egri = ritim.length ? konusmaEgrisi(b.t, bitis) : null;
+      const zaman = (oran, basla) => egri ? egridenZaman(egri, oran, basla) : b.t + (bitis - b.t) * oran;
+      // Bloktaki konuşma ilerlemesi (0-1): ritim varsa duraklarda sabit kalır, yoksa zamanla doğrusaldır
+      const ilerle = egri ? (t) => konusmaIlerleme(egri, t) : (t) => (t - b.t) / ((bitis - b.t) || 1);
+      const parcaListe = metinli.map((s) => kelimelereBol(s, !egri));
+      const toplam = parcaListe.reduce((a, p) => a + p.agirlik, 0) || 1;
       let gec = 0;
+      let sira = 0;
       for (const s of b.satirlar) {
         if (s === null) {
           const d = document.createElement("div");
@@ -130,21 +181,21 @@
           akis.appendChild(ip);
           continue;
         }
+        const parcalar = parcaListe[sira++];
         const el = document.createElement("div");
         el.className = "satir";
         const kelimeler = [];
-        for (const k of kelimelereBol(s)) {
+        for (const k of parcalar) {
           if (k.bosluk) { el.appendChild(document.createTextNode(k.metin)); continue; }
           const sp = document.createElement("span");
           sp.className = "k";
           sp.textContent = k.metin;
           el.appendChild(sp);
-          kelimeler.push({ sp, a: k.a, b: k.b });
+          kelimeler.push({ sp, A: (gec + k.bas) / toplam, B: (gec + k.son) / toplam });
         }
         akis.appendChild(el);
-        const bas = b.t + (bitis - b.t) * (gec / toplam);
-        satirlar.push({ t: bas, bit: bas + (bitis - b.t) * (s.length / toplam), el, kelimeler });
-        gec += s.length;
+        satirlar.push({ t: gec === 0 ? b.t : zaman(gec / toplam, true), el, kelimeler, ilerle });
+        gec += parcalar.agirlik;
       }
     });
     satirlar.forEach((s) => { s.el.onclick = () => sar(s.t); });
@@ -168,12 +219,12 @@
     if (aktif >= 0 && document.body.classList.contains("karaoke")) kelimeDoldur(satirlar[aktif], t);
   }
 
-  // Aktif satırda her kelimenin dolum oranını (0-1) video zamanına göre ayarlar; kenar 24% yumuşaktır
+  // Aktif satırda her kelimeyi konuşmanın ilerlemesine göre soluktan beyaza doldurur; kenar 24% yumuşaktır
   function kelimeDoldur(s, t) {
     if (!s.kelimeler) return;
-    const p = Math.min(1, Math.max(0, (t - s.t) / ((s.bit - s.t) || 1)));
+    const p = s.ilerle(t);
     for (const k of s.kelimeler) {
-      const f = Math.min(1, Math.max(0, (p - k.a) / ((k.b - k.a) || 1)));
+      const f = Math.min(1, Math.max(0, (p - k.A) / ((k.B - k.A) || 1e-6)));
       const a = -24 + f * 124;
       k.sp.style.setProperty("--a", a + "%");
       k.sp.style.setProperty("--b", (a + 24) + "%");
@@ -252,9 +303,14 @@
   document.getElementById("dosya").onchange = (e) =>
     e.target.files[0].text().then((m) => { document.getElementById("yukle").style.display = "none"; kur(m); });
 
+  // İngilizce konuşma ritmi isteğe bağlıdır: dosya yoksa karaoke yedek ağırlıklarla çalışır
+  const ritimYukle = benimId
+    ? fetch("veri/" + benimId + "/ritim.json").then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (j && j.kelimeler) ritim = j.kelimeler; }).catch(() => {})
+    : Promise.resolve();
   const f = q.get("f");
   if (f) {
-    fetch(f).then((r) => { if (!r.ok) throw 0; return r.text(); }).then(kur)
+    ritimYukle.then(() => fetch(f)).then((r) => { if (!r.ok) throw 0; return r.text(); }).then(kur)
       .catch(() => { document.getElementById("yukle").style.display = "flex"; });
   } else {
     document.getElementById("yukle").style.display = "flex";
