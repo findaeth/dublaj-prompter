@@ -43,14 +43,14 @@ def scene_a(n=36):
     out = []
     cmd = '$ python hazirla.py "<youtube linki>"'
     for k in range(n):
-        im, d = base(1, "Linki ver, transkripti çıkarsın")
+        im, d = base(1, "Linki ver, transkript çıksın")
         panel(d, (30, 70, 690, 330), "terminal")
         typed = cmd[:min(len(cmd), int(k * len(cmd) / 13))]
         d.text((52, 114), typed, font=f_mono, fill=TEXT, anchor="lm")
         if k < 14 and k % 4 < 2:
             x = 52 + d.textlength(typed, font=f_mono)
             d.rectangle((x + 2, 104, x + 10, 124), fill=TEXT)
-        for label, s, e, y in (("ses indiriliyor (yt-dlp)", 15, 20, 164),
+        for label, s, e, y in (("Ses indiriliyor (yt-dlp)", 15, 20, 164),
                                ("Whisper: transkript ve kelime zamanları", 20, 28, 198),
                                ("ffmpeg: konuşma sessizlikleri bulunuyor", 28, 32, 232)):
             if k >= s:
@@ -61,7 +61,7 @@ def scene_a(n=36):
             d.rounded_rectangle((76, 222, 476, 230), 4, fill=BORDER)
             d.rounded_rectangle((76, 222, 76 + int(400 * (k - 20) / 8), 230), 4, fill=BLUE)
         if k >= 32:
-            d.text((76, 270), "hazır: en.txt ve ritim.json", font=f_mono, fill=GREEN, anchor="lm")
+            d.text((76, 270), "Hazır: en.txt ve ritim.json", font=f_mono, fill=GREEN, anchor="lm")
         out.append(im)
     return out
 
@@ -173,8 +173,8 @@ def scene_c(n=72):
     for k in range(n):
         vt = k * 0.22 if k < 36 else min(19.8, k * 0.22 + 5)
         im, d = base(3, "Prompter videoyla birlikte akar")
-        panel(d, (30, 70, 356, 300), "VİDEO sekmesi")
-        panel(d, (372, 70, 690, 300), "PROMPTER sekmesi")
+        panel(d, (30, 70, 356, 300), "Video sekmesi")
+        panel(d, (372, 70, 690, 300), "Prompter sekmesi")
         im.paste(video_frame(k, vt), (38, 96))
         d.rounded_rectangle((38, 268, 348, 274), 3, fill=BORDER)
         d.rounded_rectangle((38, 268, 38 + int(310 * vt / 20), 274), 3, fill=RED)
@@ -202,14 +202,14 @@ def scene_c(n=72):
         d = ImageDraw.Draw(im)
         pressed = 36 <= k < 40
         x = 388
-        for label, w in (("-10", 40), ("-5", 40), ("Oynat / Durdur", 112), ("+5", 40), ("+10", 40)):
+        for label, w in (("-10", 40), ("-5", 40), ("Oynat/Durdur", 112), ("+5", 40), ("+10", 40)):
             hot = pressed and label == "+5"
             d.rounded_rectangle((x, 308, x + w, 334), 6, fill=BLUE if hot else (36, 40, 48), outline=BORDER)
             d.text((x + w / 2, 321), label, font=f_s, fill=BG if hot else TEXT, anchor="mm")
             x += w + 8
         d.text((531, 352), "Karaoke açık · ritim: v3, çapa 2/9", font=f_s, fill=MID, anchor="mm")
         if PAUSE[0] <= vt < PAUSE[1]:
-            d.text((348, 286), "konuşmacı duraklıyor", font=f_s, fill=YEL, anchor="rm")
+            d.text((348, 286), "Konuşmacı duraklıyor", font=f_s, fill=YEL, anchor="rm")
         out.append(im)
     return out
 
@@ -221,10 +221,10 @@ def scene_d(n=28):
         card = Image.new("RGB", (W, H), BG)
         d = ImageDraw.Draw(card)
         d.text((W / 2, 150), "Dublaj Prompter", font=f_big, fill=TEXT, anchor="mm")
-        d.text((W / 2, 205), "İngilizce videoya Türkçe seslendirme için,", font=f_sub, fill=MID, anchor="mm")
-        d.text((W / 2, 232), "videoyla saniyesi saniyesine akan prompter", font=f_sub, fill=MID, anchor="mm")
+        d.text((W / 2, 205), "İngilizce videolara Türkçe seslendirme için,", font=f_sub, fill=MID, anchor="mm")
+        d.text((W / 2, 232), "videoyla saniye saniye akan yerel prompter", font=f_sub, fill=MID, anchor="mm")
         x = 85
-        for tag, w in (("Whisper", 90), ("karaoke", 90), ("konuşma ritmi", 130), ("Claude Code", 120), ("yerel", 80)):
+        for tag, w in (("Whisper", 90), ("Karaoke", 90), ("Konuşma ritmi", 130), ("Claude Code", 120), ("Yerel", 80)):
             d.rounded_rectangle((x, 290, x + w, 318), 14, outline=BLUE, fill=PANEL)
             d.text((x + w / 2, 304), tag, font=f_s, fill=BLUE, anchor="mm")
             x += w + 10
