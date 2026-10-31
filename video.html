@@ -29,7 +29,11 @@
     player = new YT.Player("player", {
       videoId: vid,
       playerVars: { rel: 0, cc_load_policy: 0, playsinline: 1 },
-      events: { onStateChange: yay },
+      events: {
+        onStateChange: yay,
+        // İsteğe bağlı yavaşlatma: video.html?v=ID&r=0.75 (YouTube 0.25, 0.5, 0.75, 1, 1.25... hızlarını destekler)
+        onReady: () => { const r = +new URLSearchParams(location.search).get("r"); if (r) player.setPlaybackRate(r); },
+      },
     });
     setInterval(yay, 100);
   }
